@@ -897,7 +897,7 @@ pub fn address_device(slot_id: u8) -> bool {
             write_volatile(ep0_ctx.add(1), mps << 16);
             // Set Dequeue Pointer (DW2/DW3)
             let deq_low = (ep0_ring_phys as u32) & !0xF;
-            let deq_high = ((ep0_ring_phys >> 32) as u32);
+            let deq_high = (ep0_ring_phys >> 32) as u32;
             write_volatile(ep0_ctx.add(2), deq_low);
             write_volatile(ep0_ctx.add(3), deq_high);
         }

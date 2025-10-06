@@ -114,7 +114,7 @@ pub fn init() {
 
 mod handlers {
     use super::*;
-    use core::sync::atomic::{AtomicU64, Ordering};
+    use core::sync::atomic::Ordering;
     use x86_64::instructions::port::Port;
 
     macro_rules! simple_handler {

@@ -1445,7 +1445,7 @@ pub fn reset_port(index: usize) -> bool {
             if let Some(controller) = Xhci::new(info) {
                 let op = controller.operational();
                 let regs = op.port(index);
-                let mut sc = regs.portsc();
+                let sc = regs.portsc();
                 serial::write_fmt(format_args!("[xhci] resetting port{} sc={:#x}\r\n", index + 1, sc));
                 regs.write_portsc(sc | (1 << 4));
                 let _ = wait_for(|| {

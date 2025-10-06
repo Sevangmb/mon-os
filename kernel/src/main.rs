@@ -23,6 +23,8 @@ mod ai_model;
 mod journal;
 mod apply_action;
 mod ai_link;
+#[cfg(feature = "ai_agent")]
+mod ai_initrd;
 
 use bootinfo::BootInfo;
 use core::panic::PanicInfo;
@@ -77,8 +79,13 @@ pub extern "C" fn kernel_main(boot_info: &BootInfo) -> ! {
     {
         extern "C" {
             static mut AI_MODEL_ADDR: *const u8;
+            static mut INITRD_BASE: *const u8;
+            static mut INITRD_LEN: usize;
         }
         unsafe {
+            if !INITRD_BASE.is_null() && INITRD_LEN > 0 {
+                ai_initrd::try_set_model_from_initrd();
+            }
             if !AI_MODEL_ADDR.is_null() {
                 serial::write_str("[ai] starting agent\r\n");
                 // Launch agent in-place (no scheduler yet): run inline for now

@@ -54,3 +54,16 @@ clean:
 	cd kernel && $(CARGO) clean
 
 .PHONY: all clean
+
+# --- Initrd packaging (cpio newc) ---
+INITRD_IMG := initrd.img
+AI_MOD     ?= ai.mod
+
+initrd: $(INITRD_IMG)
+
+$(INITRD_IMG): $(AI_MOD)
+	rm -rf initrd && mkdir -p initrd
+	cp $(AI_MOD) initrd/
+	( cd initrd && find . | cpio -o -H newc > ../$(INITRD_IMG) )
+	rm -rf initrd
+	@echo "Built $(INITRD_IMG) with $(AI_MOD)"

@@ -145,3 +145,11 @@ pub extern "C" fn ai_propose_action(
 pub fn set_system_ready() {
     SYSTEM_READY.store(true, Ordering::Release);
 }
+
+pub fn is_system_ready() -> bool {
+    SYSTEM_READY.load(Ordering::Acquire)
+}
+
+pub fn get_quantum_us() -> u32 {
+    unsafe { QUANTUM_US }
+}

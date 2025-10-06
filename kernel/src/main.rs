@@ -181,7 +181,7 @@ fn log_memory_map(boot_info: &BootInfo) {
     debug_out("kmain: memmap done\n");
 }
 
-fn log_usb_controllers() {
+pub fn log_usb_controllers() {
     debug_out("kmain: pci scan\n");
     let mut found = 0usize;
     pci::find_usb_controllers(|addr| {

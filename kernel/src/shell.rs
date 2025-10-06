@@ -186,3 +186,12 @@ fn hex_dump(bytes: &[u8]) {
         off += 16;
     }
 }
+
+// Approximate sleep using timer ticks (assumes ~1 kHz timer)
+fn sleep_ms(ms: u64) {
+    let start = idt::timer_ticks();
+    let target = start.saturating_add(ms);
+    while idt::timer_ticks() < target {
+        unsafe { core::arch::asm!("hlt"); }
+    }
+}

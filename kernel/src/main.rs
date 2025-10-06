@@ -25,6 +25,8 @@ mod apply_action;
 mod ai_link;
 #[cfg(feature = "ai_agent")]
 mod ai_initrd;
+#[cfg(feature = "ai_agent")]
+mod task;
 
 use bootinfo::BootInfo;
 use core::panic::PanicInfo;
@@ -90,9 +92,8 @@ pub extern "C" fn kernel_main(boot_info: &BootInfo) -> ! {
                 ai_initrd::try_set_model_from_initrd();
             }
             if !AI_MODEL_ADDR.is_null() {
-                serial::write_str("[ai] starting agent\r\n");
-                // Launch agent in-place (no scheduler yet): run inline for now
-                ai_agent::ai_agent_main(AI_MODEL_ADDR);
+                serial::write_str("[ai] scheduling agent task\r\n");
+                let _ = task::register(|| ai_agent::step());
             } else {
                 serial::write_str("[ai] model addr not set; agent inactive\r\n");
             }
@@ -108,6 +109,10 @@ pub extern "C" fn kernel_main(boot_info: &BootInfo) -> ! {
     #[cfg(not(feature = "qemu_exit"))]
     loop {
         xhci::poll_events();
+        #[cfg(feature = "ai_agent")]
+        {
+            task::run_once();
+        }
         hlt();
     }
 }

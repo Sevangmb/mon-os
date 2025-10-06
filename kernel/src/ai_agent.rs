@@ -44,6 +44,17 @@ const TRIM_BYTES: u64 = 1 * 1024 * 1024;
 
 static AI_RUNNING: AtomicBool = AtomicBool::new(true);
 
+// Internal persistent state for step-based agent
+struct AgentState {
+    hdr: ModelHeader,
+    model_ptr: *const u8,
+    prev_ticks: u64,
+    prev_pf: u64,
+    scratch: [i32; 1024],
+}
+
+static mut AGENT_STATE: Option<AgentState> = None;
+
 extern "C" {
     fn ai_propose_action(action: *const Action, outcome: *mut ActionOutcome) -> i32;
 }
@@ -103,7 +114,8 @@ fn gather_telemetry(prev_ticks: &mut u64, prev_pf: &mut u64) -> Telemetry {
     let pf_rate = (pf.saturating_sub(*prev_pf)) as u32;
     *prev_pf = pf;
     let free_kb = pmm::free_kib() as u32;
-    Telemetry { irq_errors: 0, runq: 0, irq_rate: rate, free_kb, pf_rate }
+    let runq = crate::task::runqueue_len() as u32;
+    Telemetry { irq_errors: 0, runq, irq_rate: rate, free_kb, pf_rate }
 }
 
 fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 1024], model_addr: *const u8) -> Action {
@@ -214,4 +226,39 @@ pub extern "C" fn ai_agent_main(model_addr: *const u8) -> ! {
     }
 
     idle_hlt()
+}
+
+fn ensure_init() -> bool {
+    unsafe {
+        if AGENT_STATE.is_some() {
+            return true;
+        }
+        let Some(model) = load_model(AI_MODEL_ADDR) else { return false; };
+        let hdr = core::ptr::read_unaligned(model.as_ptr());
+        AGENT_STATE = Some(AgentState {
+            hdr,
+            model_ptr: model.as_ptr() as *const u8,
+            prev_ticks: idt::timer_ticks(),
+            prev_pf: idt::page_faults(),
+            scratch: [0; 1024],
+        });
+        true
+    }
+}
+
+pub fn step() {
+    if !ensure_init() { return; }
+    if !AI_RUNNING.load(Ordering::Acquire) { return; }
+    let (hdr, model_ptr, prev_ticks, prev_pf) = unsafe {
+        let st = AGENT_STATE.as_mut().unwrap();
+        (st.hdr, st.model_ptr, &mut st.prev_ticks, &mut st.prev_pf)
+    };
+    let tel = gather_telemetry(prev_ticks, prev_pf);
+    let action = unsafe {
+        let st = AGENT_STATE.as_mut().unwrap();
+        infer_and_propose(&hdr, &tel, &mut st.scratch, model_ptr)
+    };
+    if (action.flags & actf::NEEDS_MANUAL_CONFIRM) != 0 { return; }
+    let mut outcome = ActionOutcome::default();
+    let _ = unsafe { ai_propose_action(&action as *const _, &mut outcome as *mut _) };
 }

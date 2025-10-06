@@ -74,11 +74,14 @@ load_initrd:
     call ata_read_lba28
     jc .done
 
-    ; parse little-endian u64 length (use low 32 for simplicity)
+    ; Expect header magic 'AIRD' and little-endian u64 length
     mov esi, STACK_TOP32
     sub esi, 4096
-    mov eax, [esi]
-    mov edx, [esi+4]
+    mov eax, [esi]            ; magic
+    cmp eax, 0x44495241       ; 'AIRD'
+    jne .done
+    mov eax, [esi+4]          ; len low
+    mov edx, [esi+8]          ; len high
     ; compute sectors = (len + 511) >> 9
     add eax, 511
     adc edx, 0
@@ -103,8 +106,8 @@ load_initrd:
     mov dword [boot_info_initrd_base], INITRD_DEST
     mov dword [boot_info_initrd_base+4], 0
     ; store original 64-bit length from header
-    mov eax, [esi]
-    mov edx, [esi+4]
+    mov eax, [esi+4]
+    mov edx, [esi+8]
     mov [boot_info_initrd_len], eax
     mov [boot_info_initrd_len+4], edx
 

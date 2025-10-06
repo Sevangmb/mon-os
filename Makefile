@@ -44,7 +44,7 @@ $(DISK_IMG): $(BOOT_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(INITRD_IMG)
 	dd if=$(STAGE2_BIN) of=$@ bs=512 seek=1 conv=notrunc; \
 	dd if=$(KERNEL_ELF) of=$@ bs=512 seek=$$KERNEL_LBA conv=notrunc; \
 	if [ "$$INITRD_SIZE" -gt 0 ]; then \
-	  python3 -c 'import sys,struct;sys.stdout.buffer.write(struct.pack("<Q", int(sys.argv[1])))' $$INITRD_SIZE | \
+	  python3 -c 'import sys,struct; sys.stdout.buffer.write(b"AIRD"+struct.pack("<Q", int(sys.argv[1])))' $$INITRD_SIZE | \
 	    dd of=$@ bs=512 seek=$$INITRD_LBA conv=notrunc; \
 	  INITRD_DATA_LBA=$$((INITRD_LBA + 1)); \
 	  dd if=$(INITRD_IMG) of=$@ bs=512 seek=$$INITRD_DATA_LBA conv=notrunc; \

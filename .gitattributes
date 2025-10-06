@@ -1,0 +1,9 @@
+# Enforce LF endings for scripts and build files to avoid issues on Linux
+*.sh text eol=lf
+Makefile text eol=lf
+*.asm text eol=lf
+*.ld text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+.gitattributes text eol=lf

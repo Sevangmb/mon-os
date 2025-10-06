@@ -6,6 +6,9 @@ BOOT_BIN   := $(BUILD_DIR)/boot.bin
 STAGE2_BIN := $(BUILD_DIR)/stage2.bin
 KERNEL_ELF := kernel/target/x86_64-kernel/release/kernel
 DISK_IMG   := disk.img
+QEMU       ?= qemu-system-x86_64
+QEMU_FLAGS ?= -serial stdio -debugcon stdio -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot -no-shutdown
+FEATURES   ?=
 
 all: $(DISK_IMG)
 
@@ -26,7 +29,7 @@ $(STAGE2_BIN): stage2/stage2.asm | $(BUILD_DIR)
 	rm -f $@.tmp
 
 $(KERNEL_ELF):
-	cd kernel && $(CARGO) +nightly build --release -Zbuild-std=core,compiler_builtins -Zbuild-std-features=compiler-builtins-mem
+	cd kernel && $(CARGO) +nightly build --release -Zbuild-std=core,compiler_builtins -Zbuild-std-features=compiler-builtins-mem --features "$(FEATURES)"
 
 $(DISK_IMG): $(BOOT_BIN) $(STAGE2_BIN) $(KERNEL_ELF)
 	@STAGE2_SIZE=$$(wc -c < $(STAGE2_BIN)); \
@@ -36,6 +39,14 @@ $(DISK_IMG): $(BOOT_BIN) $(STAGE2_BIN) $(KERNEL_ELF)
 	dd if=$(BOOT_BIN) of=$@ conv=notrunc; \
 	dd if=$(STAGE2_BIN) of=$@ bs=512 seek=1 conv=notrunc; \
 	dd if=$(KERNEL_ELF) of=$@ bs=512 seek=$$KERNEL_LBA conv=notrunc
+
+run: $(DISK_IMG)
+	$(QEMU) -drive file=$(DISK_IMG),format=raw $(QEMU_FLAGS)
+
+smoke:
+	$(MAKE) clean
+	$(MAKE) FEATURES=qemu_exit all
+	bash scripts/test-smoke.sh
 
 clean:
 	rm -rf $(BUILD_DIR) $(DISK_IMG)

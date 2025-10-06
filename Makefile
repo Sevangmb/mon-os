@@ -31,14 +31,24 @@ $(STAGE2_BIN): stage2/stage2.asm | $(BUILD_DIR)
 $(KERNEL_ELF):
 	cd kernel && $(CARGO) +nightly build --release -Zbuild-std=core,compiler_builtins -Zbuild-std-features=compiler-builtins-mem --features "$(FEATURES)"
 
-$(DISK_IMG): $(BOOT_BIN) $(STAGE2_BIN) $(KERNEL_ELF)
+$(DISK_IMG): $(BOOT_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(INITRD_IMG)
 	@STAGE2_SIZE=$$(wc -c < $(STAGE2_BIN)); \
 	STAGE2_SECTORS=$$(( (STAGE2_SIZE + 511) / 512 )); \
 	KERNEL_LBA=$$((1 + STAGE2_SECTORS)); \
-	dd if=/dev/zero of=$@ bs=512 count=4096 conv=notrunc; \
+	KERNEL_SIZE=$$(wc -c < $(KERNEL_ELF)); \
+	KERNEL_SECTORS=$$(( (KERNEL_SIZE + 511) / 512 )); \
+	INITRD_SIZE=$$(wc -c < $(INITRD_IMG) 2>/dev/null || echo 0); \
+	INITRD_LBA=$$((KERNEL_LBA + KERNEL_SECTORS)); \
+	dd if=/dev/zero of=$@ bs=512 count=8192 conv=notrunc; \
 	dd if=$(BOOT_BIN) of=$@ conv=notrunc; \
 	dd if=$(STAGE2_BIN) of=$@ bs=512 seek=1 conv=notrunc; \
-	dd if=$(KERNEL_ELF) of=$@ bs=512 seek=$$KERNEL_LBA conv=notrunc
+	dd if=$(KERNEL_ELF) of=$@ bs=512 seek=$$KERNEL_LBA conv=notrunc; \
+	if [ "$$INITRD_SIZE" -gt 0 ]; then \
+	  python3 -c 'import sys,struct;sys.stdout.buffer.write(struct.pack("<Q", int(sys.argv[1])))' $$INITRD_SIZE | \
+	    dd of=$@ bs=512 seek=$$INITRD_LBA conv=notrunc; \
+	  INITRD_DATA_LBA=$$((INITRD_LBA + 1)); \
+	  dd if=$(INITRD_IMG) of=$@ bs=512 seek=$$INITRD_DATA_LBA conv=notrunc; \
+	fi
 
 run: $(DISK_IMG)
 	$(QEMU) -drive file=$(DISK_IMG),format=raw $(QEMU_FLAGS)

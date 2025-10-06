@@ -5,6 +5,8 @@ pub struct BootInfo {
     pub memory_map: *const MemoryMapEntry,
     pub memory_map_len: u64,
     pub memory_map_entry_size: u64,
+    pub initrd_base: u64,
+    pub initrd_len: u64,
 }
 
 #[repr(C)]
@@ -74,6 +76,9 @@ impl BootInfo {
             stride,
         }
     }
+
+    pub fn initrd_base(&self) -> u64 { self.initrd_base }
+    pub fn initrd_len(&self) -> u64 { self.initrd_len }
 }
 
 impl Iterator for MemoryMapIter {

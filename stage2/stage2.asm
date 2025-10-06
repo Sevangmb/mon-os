@@ -29,6 +29,7 @@ stage2_start:
     mov esp, STACK_TOP32
 
     call load_kernel
+    call load_initrd
     call setup_gdt
     call build_page_tables
     call load_memory_map
@@ -51,6 +52,65 @@ stage2_start:
     mov cr0, eax
 
     jmp GDT64_CODE:long_mode_entry
+
+; --- Load initrd placed right after kernel on disk ---
+; Layout on disk: [boot][stage2][kernel @ KERNEL_LBA .. +kernel_required_sectors-1][initrd_hdr(1 sector)][initrd data]
+; initrd_hdr: little-endian u64 byte length at offset 0
+
+%define INITRD_DEST 0x01000000
+
+load_initrd:
+    pusha
+    ; compute LBA of initrd header = KERNEL_LBA + kernel_required_sectors
+    mov eax, [kernel_required_sectors]
+    add eax, KERNEL_LBA
+    mov [tmp_offset], eax ; reuse tmp_offset low dword as lba
+
+    ; read 1 sector header into temp buffer at STACK_TOP32-4096
+    mov edi, STACK_TOP32
+    sub edi, 4096
+    mov eax, [tmp_offset]
+    mov ecx, 1
+    call ata_read_lba28
+    jc .done
+
+    ; parse little-endian u64 length (use low 32 for simplicity)
+    mov esi, STACK_TOP32
+    sub esi, 4096
+    mov eax, [esi]
+    mov edx, [esi+4]
+    ; compute sectors = (len + 511) >> 9
+    add eax, 511
+    adc edx, 0
+    mov ecx, 9
+    shrd eax, edx, cl
+    shr edx, cl
+    test edx, edx
+    jnz .done ; too big for 28-bit LBA path
+    mov [kernel_remaining_sectors], eax ; reuse as initrd_sectors
+
+    ; read initrd data starting at lba+1 to INITRD_DEST
+    mov edi, INITRD_DEST
+    mov eax, [tmp_offset]
+    add eax, 1
+    mov ecx, [kernel_remaining_sectors]
+    test ecx, ecx
+    jz .done
+    call ata_read_lba28
+    jc .done
+
+    ; write boot_info initrd_base/len
+    mov dword [boot_info_initrd_base], INITRD_DEST
+    mov dword [boot_info_initrd_base+4], 0
+    ; store original 64-bit length from header
+    mov eax, [esi]
+    mov edx, [esi+4]
+    mov [boot_info_initrd_len], eax
+    mov [boot_info_initrd_len+4], edx
+
+.done:
+    popa
+    ret
 
 load_kernel:
     pusha
@@ -666,6 +726,10 @@ boot_info_entry_count:
     dq 0
 boot_info_entry_size:
     dq E820_ENTRY_SIZE
+boot_info_initrd_base:
+    dq 0
+boot_info_initrd_len:
+    dq 0
 
 align 8
 boot_memory_map:

@@ -185,7 +185,7 @@ mod handlers {
         halt_loop();
     }
 
-    static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
+    pub(super) static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 
     pub extern "x86-interrupt" fn timer(_stack: InterruptStackFrame) {
         let ticks = TIMER_TICKS.fetch_add(1, Ordering::Relaxed) + 1;

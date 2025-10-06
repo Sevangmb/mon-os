@@ -10,6 +10,7 @@ use x86_64::PrivilegeLevel;
 static IDT: Once<InterruptDescriptorTable> = Once::new();
 static IRQ_COUNT: AtomicU64 = AtomicU64::new(0);
 static PAGE_FAULTS: AtomicU64 = AtomicU64::new(0);
+static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy)]
 #[repr(u8)]
@@ -185,10 +186,8 @@ mod handlers {
         halt_loop();
     }
 
-    pub(super) static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
-
     pub extern "x86-interrupt" fn timer(_stack: InterruptStackFrame) {
-        let ticks = TIMER_TICKS.fetch_add(1, Ordering::Relaxed) + 1;
+        let ticks = super::TIMER_TICKS.fetch_add(1, Ordering::Relaxed) + 1;
         IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
         if ticks % 1000 == 0 {
             debug_line("[irq] timer\n");
@@ -246,9 +245,7 @@ mod handlers {
     }
 }
 
-pub fn timer_ticks() -> u64 {
-    handlers::TIMER_TICKS.load(Ordering::Relaxed)
-}
+pub fn timer_ticks() -> u64 { TIMER_TICKS.load(Ordering::Relaxed) }
 
 pub fn irq_count() -> u64 {
     IRQ_COUNT.load(Ordering::Relaxed)

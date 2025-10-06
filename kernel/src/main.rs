@@ -1,0 +1,206 @@
+#![feature(abi_x86_interrupt)]
+#![no_std]
+#![cfg_attr(not(test), no_main)]
+
+#[cfg(all(test, not(target_os = "none")))]
+extern crate std;
+
+mod bootinfo;
+mod gdt;
+mod idt;
+mod keyboard;
+mod pci;
+mod pic;
+mod pmm;
+mod serial;
+mod syscall;
+mod vga;
+mod xhci;
+
+use bootinfo::BootInfo;
+use core::panic::PanicInfo;
+use x86_64::instructions::port::Port;
+use x86_64::instructions::{hlt, interrupts};
+
+#[cfg(not(test))]
+#[no_mangle]
+pub extern "C" fn _start(boot_info_ptr: *const BootInfo) -> ! {
+    let boot_info = unsafe { boot_info_ptr.as_ref().expect("boot info pointer") };
+    kernel_main(boot_info)
+}
+
+#[no_mangle]
+pub extern "C" fn kernel_main(boot_info: &BootInfo) -> ! {
+    debug_out("kmain: entry\n");
+
+    gdt::init();
+    debug_out("kmain: gdt\n");
+
+    serial::init();
+    debug_out("kmain: serial\n");
+
+    idt::init();
+    debug_out("kmain: idt\n");
+
+    syscall::init();
+    debug_out("kmain: syscall\n");
+
+    serial::write_str("Hello Kernel\r\n");
+    debug_out("kmain: wrote serial\n");
+
+    vga::init();
+    vga::set_style(0x1f); // white on blue for headline
+    vga::write_line("Hello Kernel");
+    vga::set_style(0x0f);
+    debug_out("kmain: wrote vga\n");
+
+    pic::init();
+    debug_out("kmain: pic\n");
+
+    pmm::init(boot_info);
+    log_memory_map(boot_info);
+    log_usb_controllers();
+
+    interrupts::enable();
+    debug_out("kmain: interrupts on\n");
+
+    #[cfg(feature = "trigger_breakpoint")]
+    trigger_breakpoint();
+
+    #[cfg(feature = "qemu_exit")]
+    exit_qemu(0);
+
+    #[cfg(not(feature = "qemu_exit"))]
+    loop {
+        hlt();
+    }
+}
+
+#[cfg(feature = "trigger_breakpoint")]
+fn trigger_breakpoint() {
+    interrupts::int3();
+}
+
+fn log_memory_map(boot_info: &BootInfo) {
+    debug_out("kmain: memmap\n");
+
+    let mut regions = 0u64;
+    let mut usable_bytes = 0u64;
+
+    unsafe {
+        for region in boot_info.memory_map() {
+            regions += 1;
+            if region.is_usable() {
+                usable_bytes = usable_bytes.saturating_add(region.length);
+            }
+
+            let end = region.base_addr.saturating_add(region.length);
+            let kind = region.kind();
+            serial::write_fmt(format_args!(
+                "[mem] {:#016x}-{:#016x} {} (type {:#x}, attr {:#x})\r\n",
+                region.base_addr,
+                end,
+                kind.as_str(),
+                region.region_type,
+                region.attributes,
+            ));
+        }
+    }
+
+    let usable_kib = usable_bytes / 1024;
+    serial::write_fmt(format_args!(
+        "[mem] usable: {usable_kib} KiB across {regions} entries\r\n",
+        usable_kib = usable_kib,
+        regions = regions,
+    ));
+    debug_out("kmain: memmap done\n");
+}
+
+fn log_usb_controllers() {
+    debug_out("kmain: pci scan\n");
+    let mut found = 0usize;
+    pci::find_usb_controllers(|addr| {
+        found += 1;
+        let vendor = pci::vendor_id(addr);
+        let device = pci::device_id(addr);
+        let class = pci::class_code(addr);
+        let subclass = pci::subclass(addr);
+        let prog_if = pci::prog_if(addr);
+        serial::write_fmt(format_args!(
+            "[pci] usb {} vendor={:04x} device={:04x} class={:02x} sub={:02x} if={:02x}\r\n",
+            addr, vendor, device, class, subclass, prog_if
+        ));
+
+        if prog_if == 0x30 {
+            match pci::bar(addr, 0) {
+                Some(bar) if bar.is_memory => unsafe {
+                    match xhci::inspect(bar.base) {
+                        Some(info) => {
+                            serial::write_fmt(format_args!(
+                                "[xhci] base={:#016x} caplen={} version={:04x} slots={} ports={} ctx={} dboff={:#x} rtsoff={:#x}\r\n",
+                                info.base,
+                                info.cap_length,
+                                info.hci_version,
+                                info.max_slots(),
+                                info.max_ports(),
+                                info.context_size(),
+                                info.dboff,
+                                info.rtsoff,
+                            ));
+                            match xhci::init_controller(info) {
+                                Ok(()) => {
+                                    serial::write_str("[xhci] controller initialized\r\n");
+                                    xhci::report_ports();
+                                    xhci::poll_events();
+                                }
+                                Err(err) => serial::write_fmt(format_args!(
+                                    "[xhci] init failed: {}\r\n",
+                                    err
+                                )),
+                            }
+                        }
+                        None => {
+                            serial::write_str("[xhci] failed to read capability registers\r\n");
+                        }
+                    }
+                },
+                Some(_) => serial::write_str("[xhci] bar0 is not memory-mapped\r\n"),
+                None => serial::write_str("[xhci] missing bar0\r\n"),
+            }
+        }
+    });
+
+    if found == 0 {
+        serial::write_str("[pci] no usb controllers found\r\n");
+    }
+    debug_out("kmain: pci scan done\n");
+}
+
+fn debug_out(msg: &str) {
+    unsafe {
+        let mut port = Port::new(0xE9);
+        for byte in msg.bytes() {
+            port.write(byte);
+        }
+    }
+}
+
+pub fn exit_qemu(code: u32) -> ! {
+    unsafe {
+        let mut port = Port::<u32>::new(0xF4);
+        port.write((code << 1) | 1);
+    }
+
+    loop {
+        hlt();
+    }
+}
+
+#[cfg_attr(any(not(test), target_os = "none"), panic_handler)]
+fn panic(info: &PanicInfo) -> ! {
+    serial::panic(info);
+    vga::panic(info);
+    loop {
+        hlt();
+    }
+}

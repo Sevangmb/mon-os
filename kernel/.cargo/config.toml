@@ -1,0 +1,16 @@
+[build]
+target = "x86_64-kernel.json"
+
+[target."x86_64-kernel.json"]
+linker = "ld"
+rustflags = [
+    "-Crelocation-model=static",
+    "-Ccode-model=kernel",
+    "-Ctarget-feature=+sse,+sse2,-redzone",
+    "-Clink-arg=-T../linker.ld",
+    "-Clink-arg=--build-id=none",
+    "-Cpanic=abort",
+]
+
+#[unstable]
+# build-std = ["core", "compiler_builtins"]

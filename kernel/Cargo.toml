@@ -1,0 +1,23 @@
+[package]
+name = "kernel"
+version = "0.1.0"
+edition = "2021"
+authors = ["Codex"]
+description = "Minimal 64-bit kernel"
+
+[features]
+default = []
+trigger_breakpoint = []
+qemu_exit = []
+
+[dependencies]
+spin = { version = "0.9", default-features = false, features = ["mutex", "once", "spin_mutex"] }
+x86_64 = { version = "0.14", default-features = false, features = ["instructions", "abi_x86_interrupt"] }
+pic8259 = { version = "0.10", default-features = false }
+bitflags = { version = "2.5", default-features = false }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

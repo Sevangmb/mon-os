@@ -1,0 +1,5 @@
+build/
+disk.img
+kernel/target/
+qemu.serial
+*.log

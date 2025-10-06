@@ -4,6 +4,7 @@ use spin::Mutex;
 
 use crate::ai_action::{Action, ActionOutcome, ActionType};
 use crate::journal;
+use crate::idt;
 
 static APPLY_LOCK: Mutex<()> = Mutex::new(());
 static mut QUANTUM_US: u32 = 1000;
@@ -43,7 +44,19 @@ fn write_quantum(us: u32) -> bool {
 }
 
 fn self_test_ok() -> bool {
-    true
+    // Basic liveness check: timer tick advances and no page fault spike within short window
+    let start_ticks = idt::timer_ticks();
+    let start_pf = idt::page_faults();
+    // busy-wait a little (no sleep available here); allow IRQs to fire
+    for _ in 0..50_000 {
+        core::hint::spin_loop();
+        if idt::timer_ticks().saturating_sub(start_ticks) >= 1 {
+            break;
+        }
+    }
+    let dt = idt::timer_ticks().saturating_sub(start_ticks);
+    let dp = idt::page_faults().saturating_sub(start_pf);
+    dt >= 1 && dp == 0
 }
 
 pub fn apply_action_atomic(seq: u64, a: &Action) -> ApplyResult<()> {
@@ -106,4 +119,3 @@ pub extern "C" fn ai_propose_action(
     }
     0
 }
-

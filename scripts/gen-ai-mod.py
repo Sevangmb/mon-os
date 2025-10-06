@@ -39,9 +39,12 @@ def gen_ai_mod(layers:int, hidden:int, vocab:int, dtype:str, out_path:str, seed:
         for l in range(layers):
             in_dim = hidden
             out_dim = (hidden if l+1 < layers else (vocab if vocab>0 else hidden))
+            # Weights
             for _ in range(out_dim * in_dim):
-                # small weights keep activations bounded; range [-8..7]
                 f.write(struct.pack("b", random.randint(-8, 7)))
+            # Biases (i32 per output), small range [-128..127]
+            for _ in range(out_dim):
+                f.write(struct.pack("<i", random.randint(-128, 127)))
 
 def main():
     ap = argparse.ArgumentParser()
@@ -58,4 +61,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

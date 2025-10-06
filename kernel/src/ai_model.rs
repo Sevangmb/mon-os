@@ -52,7 +52,10 @@ impl WeightsLayout {
         for l in 0..nl {
             let in_dim = hidden;
             let out_dim = if l + 1 == nl { last_out } else { hidden };
+            // weights int8
             total = total.saturating_add(in_dim.saturating_mul(out_dim));
+            // biases i32 per output
+            total = total.saturating_add(out_dim.saturating_mul(core::mem::size_of::<i32>()));
         }
         Some(Self { total_bytes: total })
     }
@@ -69,6 +72,7 @@ pub unsafe fn layer_ptr_int8(base: *const u8, h: &ModelHeader, layer: usize) -> 
         let in_dim = hidden;
         let out_dim = if l + 1 == nl { last_out } else { hidden };
         offset = offset.saturating_add(in_dim.saturating_mul(out_dim));
+        offset = offset.saturating_add(out_dim.saturating_mul(core::mem::size_of::<i32>()));
     }
     let wptr = base.add(ModelHeader::PAYLOAD_OFFSET + offset);
     Some(wptr as *const i8)
@@ -84,3 +88,23 @@ pub fn layer_dims(h: &ModelHeader, layer: usize) -> Option<(usize, usize)> {
     Some((in_dim, out_dim))
 }
 
+pub unsafe fn bias_ptr_i32(base: *const u8, h: &ModelHeader, layer: usize) -> Option<*const i32> {
+    if h.dtype != 0 { return None; }
+    let nl = h.n_layers as usize;
+    if layer >= nl { return None; }
+    let hidden = h.hidden as usize;
+    let last_out = if h.vocab != 0 { h.vocab as usize } else { hidden };
+    // compute offset to start of this layer
+    let mut offset = 0usize;
+    for l in 0..layer {
+        let in_dim = hidden;
+        let out_dim = if l + 1 == nl { last_out } else { hidden };
+        offset = offset.saturating_add(in_dim.saturating_mul(out_dim));
+        offset = offset.saturating_add(out_dim.saturating_mul(core::mem::size_of::<i32>()));
+    }
+    // add weights of this layer
+    let (in_dim, out_dim) = match layer_dims(h, layer) { Some(d) => d, None => return None };
+    offset = offset.saturating_add(in_dim.saturating_mul(out_dim));
+    let bptr = base.add(ModelHeader::PAYLOAD_OFFSET + offset);
+    Some(bptr as *const i32)
+}

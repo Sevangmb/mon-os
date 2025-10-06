@@ -4,7 +4,7 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::ai_action::{actf, Action, ActionOutcome, ActionType};
-use crate::ai_model::{ModelHeader, WeightsLayout, layer_ptr_int8, layer_dims};
+use crate::ai_model::{ModelHeader, WeightsLayout, layer_ptr_int8, layer_dims, bias_ptr_i32};
 use crate::ai_link::AI_MODEL_LEN;
 use crate::{idt, pmm};
 
@@ -104,6 +104,7 @@ fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 102
             // Prepare i32 output in scratch
             let out_ptr = scratch.as_mut_ptr();
             let w_ptr = unsafe { layer_ptr_int8(model_addr, hdr, l).unwrap_or(core::ptr::null()) };
+            let b_ptr = unsafe { bias_ptr_i32(model_addr, hdr, l).unwrap_or(core::ptr::null()) };
             if w_ptr.is_null() { break; }
             // Do matmul: out = W (out_dim x in_dim) * x (in_dim)
             unsafe {
@@ -114,6 +115,9 @@ fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 102
                         let a = *w_row.add(p) as i32;
                         let b = xbuf[p] as i32;
                         acc += a * b;
+                    }
+                    if !b_ptr.is_null() {
+                        acc = acc.saturating_add(*b_ptr.add(oi));
                     }
                     *out_ptr.add(oi) = acc;
                 }

@@ -17,7 +17,10 @@ fn kbuf_push(b: u8) {
     let next = (head + 1) % KBUF_CAP;
     let tail = KTAIL.load(Ordering::Relaxed);
     if next != tail {
-        unsafe { KBUF.as_ptr().cast::<u8>().add(head).write(b); }
+        unsafe {
+            let p = KBUF.as_ptr().add(head) as *mut u8;
+            core::ptr::write(p, b);
+        }
         KHEAD.store(next, Ordering::Relaxed);
     }
 }
@@ -26,7 +29,7 @@ pub fn poll_char() -> Option<char> {
     let tail = KTAIL.load(Ordering::Relaxed);
     let head = KHEAD.load(Ordering::Relaxed);
     if tail == head { return None; }
-    let b = unsafe { KBUF.as_ptr().cast::<u8>().add(tail).read() };
+    let b = unsafe { *KBUF.as_ptr().add(tail) };
     KTAIL.store((tail + 1) % KBUF_CAP, Ordering::Relaxed);
     Some(b as char)
 }

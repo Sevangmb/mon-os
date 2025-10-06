@@ -122,7 +122,9 @@ fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 102
     // Build input vector of length hidden
     let hidden = hdr.hidden as usize;
     let mut inbuf_i8 = [0i8; 256];
-    let in_slice = &mut inbuf_i8[..hidden.min(inbuf_i8.len())];
+    let cap = inbuf_i8.len();
+    let slice_len = core::cmp::min(hidden, cap);
+    let in_slice = &mut inbuf_i8[..slice_len];
     // Very simple features: runq, irq_rate, free_kb (scaled)
     if !in_slice.is_empty() {
         in_slice[0] = tel.runq.min(127) as i8;

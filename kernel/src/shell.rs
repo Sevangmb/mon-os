@@ -103,7 +103,7 @@ fn execute_line() {
         "sleep" => {
             if arg.is_empty() { writeln("usage: sleep <ms>"); return; }
             if let Some(ms) = parse_u64(arg) {
-                sleep_ms(ms as u64);
+                self::sleep_ms(ms as u64);
             }
         }
         "yield" => {

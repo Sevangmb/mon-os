@@ -13,7 +13,9 @@ param(
   [switch] $KernelOnly,
 
   [ValidateSet('default','aggr','conservative')]
-  [string] $Preset = 'default'
+  [string] $Preset = 'default',
+
+  [string] $Repo
 )
 
 function Invoke-WSL {
@@ -27,9 +29,28 @@ if (-not (Get-Command wsl -ErrorAction SilentlyContinue)) {
 
 try { Invoke-WSL 'true' | Out-Null } catch { Write-Error "WSL distro '$Distro' not found. Install via: wsl --install -d Ubuntu"; exit 1 }
 
-$RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+
+# Resolve repository path (default: parent of this script)
+try {
+  if ([string]::IsNullOrWhiteSpace($Repo)) {
+    $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+  } else {
+    $RepoRoot = Resolve-Path $Repo
+  }
+} catch {
+  Write-Error "Invalid repository path. Pass -Repo 'C:\\Users\\...\\mon-os' or run the script from the repo."; exit 1
+}
+
 # Convert Windows path to WSL path
-$RepoWSL = (wsl -d $Distro -- wslpath -a "${RepoRoot}").Trim()
+try {
+  $RepoWSL = (wsl -d $Distro -- wslpath -a -u "${RepoRoot}").Trim()
+} catch {
+  Write-Error "wslpath failed. Ensure the Windows path is valid (e.g. C:\\Users\\sevans\\Desktop\\dev\\mon-os)."; exit 1
+}
+
+if ([string]::IsNullOrWhiteSpace($RepoWSL)) {
+  Write-Error "Could not convert repo path to WSL path. Try: scripts\\run-wsl.ps1 -Repo 'C:\\Users\\sevans\\Desktop\\dev\\mon-os'"; exit 1
+}
 
 Write-Host "Repo (Windows): $RepoRoot" -ForegroundColor Cyan
 Write-Host "Repo (WSL)    : $RepoWSL" -ForegroundColor Cyan
@@ -99,4 +120,3 @@ qemu-system-x86_64 \
 }
 
 Invoke-WSL $Cmd
-

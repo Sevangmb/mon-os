@@ -18,10 +18,7 @@ jobs:
         with:
           toolchain: nightly
           components: rust-src
-      - name: Build disk image
+      - name: Build and smoke test
         run: |
-          bash scripts/build.sh
-      - name: Smoke test in QEMU
-        run: |
-          chmod +x scripts/test-smoke.sh
-          timeout 120s bash scripts/test-smoke.sh
+          make clean
+          make smoke

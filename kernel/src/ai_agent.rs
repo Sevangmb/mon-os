@@ -58,14 +58,18 @@ pub struct Telemetry {
     pub runq: u32,
     pub irq_rate: u32,   // approx ticks per loop
     pub free_kb: u32,
+    pub pf_rate: u32,
 }
 
-fn gather_telemetry(prev_ticks: &mut u64) -> Telemetry {
+fn gather_telemetry(prev_ticks: &mut u64, prev_pf: &mut u64) -> Telemetry {
     let ticks = idt::timer_ticks();
     let rate = (ticks.saturating_sub(*prev_ticks)) as u32;
     *prev_ticks = ticks;
+    let pf = idt::page_faults();
+    let pf_rate = (pf.saturating_sub(*prev_pf)) as u32;
+    *prev_pf = pf;
     let free_kb = pmm::free_kib() as u32;
-    Telemetry { irq_errors: 0, runq: 0, irq_rate: rate, free_kb }
+    Telemetry { irq_errors: 0, runq: 0, irq_rate: rate, free_kb, pf_rate }
 }
 
 fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 1024], model_addr: *const u8) -> Action {
@@ -79,6 +83,7 @@ fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 102
     }
     if in_slice.len() > 1 { in_slice[1] = tel.irq_rate.min(127) as i8; }
     if in_slice.len() > 2 { in_slice[2] = ((tel.free_kb / 1024).min(127)) as i8; } // MB approx
+    if in_slice.len() > 3 { in_slice[3] = tel.pf_rate.min(127) as i8; }
 
     // Check model length for weights availability
     let model_len = unsafe { AI_MODEL_LEN };
@@ -126,7 +131,14 @@ fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 102
     }
 
     // Score = premier neurone ou 0
-    let score = if x_len > 0 { xbuf[0] as i32 } else { 0 };
+    let mut score = if x_len > 0 { xbuf[0] as i32 } else { 0 };
+    // Fallback heuristic influence if no weights (or weak): penalize page faults, reward free memory
+    if !has_weights {
+        let free_mb = (tel.free_kb / 1024) as i32;
+        score = tel.runq as i32 + (tel.irq_rate as i32)/2 - (tel.pf_rate as i32) - free_mb/8;
+        if score < -127 { score = -127; }
+        if score > 127 { score = 127; }
+    }
     // Map score to quantum (100..50_000 µs)
     let mut quantum: i32 = 1000 + score * 20; // ±2540 autour de 1ms
     if quantum < 100 { quantum = 100; }
@@ -149,9 +161,10 @@ pub extern "C" fn ai_agent_main(model_addr: *const u8) -> ! {
 
     let mut scratch: [i32; 1024] = [0; 1024];
     let mut prev_ticks: u64 = idt::timer_ticks();
+    let mut prev_pf: u64 = idt::page_faults();
 
     while AI_RUNNING.load(Ordering::Acquire) {
-        let tel = gather_telemetry(&mut prev_ticks);
+        let tel = gather_telemetry(&mut prev_ticks, &mut prev_pf);
         let action = infer_and_propose(&hdr, &tel, &mut scratch, model.as_ptr() as *const u8);
 
         if (action.flags & actf::NEEDS_MANUAL_CONFIRM) != 0 {

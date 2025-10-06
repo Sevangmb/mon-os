@@ -9,6 +9,7 @@ use x86_64::PrivilegeLevel;
 
 static IDT: Once<InterruptDescriptorTable> = Once::new();
 static IRQ_COUNT: AtomicU64 = AtomicU64::new(0);
+static PAGE_FAULTS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy)]
 #[repr(u8)]
@@ -174,6 +175,7 @@ mod handlers {
         stack: InterruptStackFrame,
         error_code: PageFaultErrorCode,
     ) {
+        PAGE_FAULTS.fetch_add(1, Ordering::Relaxed);
         let addr = Cr2::read();
         serial::write_fmt(format_args!(
             "[EXCEPTION] Page Fault\r\n  address: {addr:?}\r\n  error: {error_code:?}\r\n  bits: {:#06b}\r\n",
@@ -250,4 +252,8 @@ pub fn timer_ticks() -> u64 {
 
 pub fn irq_count() -> u64 {
     IRQ_COUNT.load(Ordering::Relaxed)
+}
+
+pub fn page_faults() -> u64 {
+    PAGE_FAULTS.load(Ordering::Relaxed)
 }

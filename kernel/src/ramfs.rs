@@ -1,4 +1,8 @@
-use crate::ai_link::{INITRD_BASE, INITRD_LEN};
+// Import initrd symbols from the global linkage (defined in ai_link.rs)
+extern "C" {
+    static mut INITRD_BASE: *const u8;
+    static mut INITRD_LEN: usize;
+}
 
 pub struct Entry<'a> {
     pub name: &'a [u8],
@@ -51,4 +55,3 @@ pub fn find(path: &str) -> Option<(*const u8, usize)> {
     });
     out
 }
-

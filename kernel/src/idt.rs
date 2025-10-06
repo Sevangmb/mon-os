@@ -1,4 +1,5 @@
 use spin::Once;
+use core::sync::atomic::{AtomicU64, Ordering};
 use x86_64::instructions::hlt;
 use x86_64::registers::control::Cr2;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
@@ -7,6 +8,7 @@ use crate::{gdt, keyboard, pic, serial, syscall};
 use x86_64::PrivilegeLevel;
 
 static IDT: Once<InterruptDescriptorTable> = Once::new();
+static IRQ_COUNT: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy)]
 #[repr(u8)]
@@ -132,6 +134,7 @@ mod handlers {
     macro_rules! irq_handler {
         ($fn_name:ident, $index:expr) => {
             pub extern "x86-interrupt" fn $fn_name(_stack: InterruptStackFrame) {
+                IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
                 pic::notify_end_of_interrupt($index.as_u8());
             }
         };
@@ -184,6 +187,7 @@ mod handlers {
 
     pub extern "x86-interrupt" fn timer(_stack: InterruptStackFrame) {
         let ticks = TIMER_TICKS.fetch_add(1, Ordering::Relaxed) + 1;
+        IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
         if ticks % 1000 == 0 {
             debug_line("[irq] timer\n");
         }
@@ -238,4 +242,12 @@ mod handlers {
             hlt();
         }
     }
+}
+
+pub fn timer_ticks() -> u64 {
+    handlers::TIMER_TICKS.load(Ordering::Relaxed)
+}
+
+pub fn irq_count() -> u64 {
+    IRQ_COUNT.load(Ordering::Relaxed)
 }

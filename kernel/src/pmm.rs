@@ -80,3 +80,9 @@ fn align_up(value: u64, align: u64) -> u64 {
 fn align_down(value: u64, align: u64) -> u64 {
     value & !(align - 1)
 }
+
+pub fn free_kib() -> u64 {
+    let next = NEXT_FREE.load(Ordering::SeqCst);
+    let limit = LIMIT.load(Ordering::SeqCst);
+    if next == 0 || limit <= next { 0 } else { (limit - next) / 1024 }
+}

@@ -6,6 +6,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use crate::ai_action::{actf, Action, ActionOutcome, ActionType};
 use crate::ai_model::{ModelHeader, WeightsLayout, layer_ptr_int8, layer_dims};
 use crate::ai_link::AI_MODEL_LEN;
+use crate::{idt, pmm};
 
 static AI_RUNNING: AtomicBool = AtomicBool::new(true);
 
@@ -55,10 +56,16 @@ pub unsafe fn matmul_int8(
 pub struct Telemetry {
     pub irq_errors: u32,
     pub runq: u32,
+    pub irq_rate: u32,   // approx ticks per loop
+    pub free_kb: u32,
 }
 
-fn gather_telemetry() -> Telemetry {
-    Telemetry::default()
+fn gather_telemetry(prev_ticks: &mut u64) -> Telemetry {
+    let ticks = idt::timer_ticks();
+    let rate = (ticks.saturating_sub(*prev_ticks)) as u32;
+    *prev_ticks = ticks;
+    let free_kb = pmm::free_kib() as u32;
+    Telemetry { irq_errors: 0, runq: 0, irq_rate: rate, free_kb }
 }
 
 fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 1024], model_addr: *const u8) -> Action {
@@ -66,11 +73,12 @@ fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 102
     let hidden = hdr.hidden as usize;
     let mut inbuf_i8 = [0i8; 256];
     let in_slice = &mut inbuf_i8[..hidden.min(inbuf_i8.len())];
-    // Very simple features: runq, irq_errors; rest zero
+    // Very simple features: runq, irq_rate, free_kb (scaled)
     if !in_slice.is_empty() {
         in_slice[0] = tel.runq.min(127) as i8;
     }
-    if in_slice.len() > 1 { in_slice[1] = tel.irq_errors.min(127) as i8; }
+    if in_slice.len() > 1 { in_slice[1] = tel.irq_rate.min(127) as i8; }
+    if in_slice.len() > 2 { in_slice[2] = ((tel.free_kb / 1024).min(127)) as i8; } // MB approx
 
     // Check model length for weights availability
     let model_len = unsafe { AI_MODEL_LEN };
@@ -105,11 +113,11 @@ fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 102
                     *out_ptr.add(oi) = acc;
                 }
             }
-            // ReLU + requantize by >> 7
+            // ReLU + requantize by >> 6 (un peu plus de dynamique)
             for oi in 0..out_dim {
                 let mut v = scratch[oi];
                 if v < 0 { v = 0; }
-                v >>= 7; // crude scale
+                v >>= 6; // crude scale
                 if v > 127 { v = 127; }
                 xbuf[oi] = v as i8;
             }
@@ -120,7 +128,7 @@ fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 102
     // Score = premier neurone ou 0
     let score = if x_len > 0 { xbuf[0] as i32 } else { 0 };
     // Map score to quantum (100..50_000 µs)
-    let mut quantum: i32 = 1000 + score * 10; // ±1270 around 1ms
+    let mut quantum: i32 = 1000 + score * 20; // ±2540 autour de 1ms
     if quantum < 100 { quantum = 100; }
     if quantum > 50_000 { quantum = 50_000; }
 
@@ -140,9 +148,10 @@ pub extern "C" fn ai_agent_main(model_addr: *const u8) -> ! {
     let hdr = unsafe { core::ptr::read_unaligned(model.as_ptr()) };
 
     let mut scratch: [i32; 1024] = [0; 1024];
+    let mut prev_ticks: u64 = idt::timer_ticks();
 
     while AI_RUNNING.load(Ordering::Acquire) {
-        let tel = gather_telemetry();
+        let tel = gather_telemetry(&mut prev_ticks);
         let action = infer_and_propose(&hdr, &tel, &mut scratch, model.as_ptr() as *const u8);
 
         if (action.flags & actf::NEEDS_MANUAL_CONFIRM) != 0 {

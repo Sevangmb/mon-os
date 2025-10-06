@@ -27,6 +27,8 @@ mod ai_link;
 mod ai_initrd;
 #[cfg(feature = "ai_agent")]
 mod task;
+mod ramfs;
+mod shell;
 
 use bootinfo::BootInfo;
 use core::panic::PanicInfo;
@@ -117,6 +119,9 @@ pub extern "C" fn kernel_main(boot_info: &BootInfo) -> ! {
         crate::apply_action::set_system_ready();
     }
 
+    // Start shell prompt (simple serial/VGA)
+    shell::start();
+
 
     #[cfg(feature = "trigger_breakpoint")]
     trigger_breakpoint();
@@ -131,6 +136,7 @@ pub extern "C" fn kernel_main(boot_info: &BootInfo) -> ! {
         {
             task::run_once();
         }
+        shell::step();
         hlt();
     }
 }

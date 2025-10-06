@@ -1,9 +1,35 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{serial, vga};
+use core::sync::atomic::{AtomicUsize};
 
 static CTRL_HELD: AtomicBool = AtomicBool::new(false);
 static SHIFT_HELD: AtomicBool = AtomicBool::new(false);
+
+// Simple key buffer for shell input (ASCII), SPSC: ISR writes, shell reads
+const KBUF_CAP: usize = 256;
+static KBUF: [u8; KBUF_CAP] = [0; KBUF_CAP];
+static KHEAD: AtomicUsize = AtomicUsize::new(0);
+static KTAIL: AtomicUsize = AtomicUsize::new(0);
+
+fn kbuf_push(b: u8) {
+    let head = KHEAD.load(Ordering::Relaxed);
+    let next = (head + 1) % KBUF_CAP;
+    let tail = KTAIL.load(Ordering::Relaxed);
+    if next != tail {
+        unsafe { KBUF.as_ptr().cast::<u8>().add(head).write(b); }
+        KHEAD.store(next, Ordering::Relaxed);
+    }
+}
+
+pub fn poll_char() -> Option<char> {
+    let tail = KTAIL.load(Ordering::Relaxed);
+    let head = KHEAD.load(Ordering::Relaxed);
+    if tail == head { return None; }
+    let b = unsafe { KBUF.as_ptr().cast::<u8>().add(tail).read() };
+    KTAIL.store((tail + 1) % KBUF_CAP, Ordering::Relaxed);
+    Some(b as char)
+}
 
 // US QWERTY set-1 scancode to ASCII maps (partial but practical)
 // Index by scancode without the release bit (0x80 cleared)
@@ -158,6 +184,7 @@ pub fn handle_scancode(scancode: u8) -> Option<&'static str> {
             // Backspace
             if !is_release {
                 vga::backspace();
+                kbuf_push(8); // ASCII backspace
             }
             None
         }
@@ -165,6 +192,10 @@ pub fn handle_scancode(scancode: u8) -> Option<&'static str> {
             // Tab -> 4 spaces for simplicity
             if !is_release {
                 vga::write_str("    ");
+                kbuf_push(b' ');
+                kbuf_push(b' ');
+                kbuf_push(b' ');
+                kbuf_push(b' ');
             }
             None
         }
@@ -172,6 +203,7 @@ pub fn handle_scancode(scancode: u8) -> Option<&'static str> {
             // Enter
             if !is_release {
                 vga::put_char('\n');
+                kbuf_push(b'\n');
             }
             None
         }
@@ -185,6 +217,7 @@ pub fn handle_scancode(scancode: u8) -> Option<&'static str> {
                 };
                 if let Some(c) = ch {
                     vga::put_char(c);
+                    kbuf_push(c as u8);
                 }
             }
             None

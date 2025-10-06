@@ -34,8 +34,6 @@ use bootinfo::BootInfo;
 use core::panic::PanicInfo;
 use x86_64::instructions::port::Port;
 use x86_64::instructions::{hlt, interrupts};
-#[cfg(feature = "ai_agent")]
-use core::ptr;
 
 #[cfg(not(test))]
 #[no_mangle]

@@ -5,3 +5,5 @@
 #[no_mangle]
 pub static mut AI_MODEL_ADDR: *const u8 = core::ptr::null();
 
+#[no_mangle]
+pub static mut AI_MODEL_LEN: usize = 0;

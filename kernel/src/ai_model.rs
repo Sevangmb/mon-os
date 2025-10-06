@@ -35,3 +35,52 @@ impl ModelHeader {
     }
 }
 
+pub struct WeightsLayout {
+    pub total_bytes: usize,
+}
+
+impl WeightsLayout {
+    pub fn compute(h: &ModelHeader) -> Option<Self> {
+        if h.dtype != 0 { // only int8 supported for now
+            return None;
+        }
+        let nl = h.n_layers as usize;
+        if nl == 0 { return None; }
+        let hidden = h.hidden as usize;
+        let last_out = if h.vocab != 0 { h.vocab as usize } else { hidden };
+        let mut total: usize = 0;
+        for l in 0..nl {
+            let in_dim = hidden;
+            let out_dim = if l + 1 == nl { last_out } else { hidden };
+            total = total.saturating_add(in_dim.saturating_mul(out_dim));
+        }
+        Some(Self { total_bytes: total })
+    }
+}
+
+pub unsafe fn layer_ptr_int8(base: *const u8, h: &ModelHeader, layer: usize) -> Option<*const i8> {
+    if h.dtype != 0 { return None; }
+    let nl = h.n_layers as usize;
+    if layer >= nl { return None; }
+    let hidden = h.hidden as usize;
+    let last_out = if h.vocab != 0 { h.vocab as usize } else { hidden };
+    let mut offset = 0usize;
+    for l in 0..layer {
+        let in_dim = hidden;
+        let out_dim = if l + 1 == nl { last_out } else { hidden };
+        offset = offset.saturating_add(in_dim.saturating_mul(out_dim));
+    }
+    let wptr = base.add(ModelHeader::PAYLOAD_OFFSET + offset);
+    Some(wptr as *const i8)
+}
+
+pub fn layer_dims(h: &ModelHeader, layer: usize) -> Option<(usize, usize)> {
+    let nl = h.n_layers as usize;
+    if layer >= nl { return None; }
+    let hidden = h.hidden as usize;
+    let last_out = if h.vocab != 0 { h.vocab as usize } else { hidden };
+    let in_dim = hidden;
+    let out_dim = if layer + 1 == nl { last_out } else { hidden };
+    Some((in_dim, out_dim))
+}
+

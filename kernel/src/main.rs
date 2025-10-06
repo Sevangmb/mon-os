@@ -83,6 +83,9 @@ pub extern "C" fn kernel_main(boot_info: &BootInfo) -> ! {
             static mut INITRD_LEN: usize;
         }
         unsafe {
+            // Propager les infos initrd depuis BootInfo vers les symboles globaux
+            INITRD_BASE = boot_info.initrd_base() as *const u8;
+            INITRD_LEN = boot_info.initrd_len() as usize;
             if !INITRD_BASE.is_null() && INITRD_LEN > 0 {
                 ai_initrd::try_set_model_from_initrd();
             }

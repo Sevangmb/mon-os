@@ -4,7 +4,8 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::ai_action::{actf, Action, ActionOutcome, ActionType};
-use crate::ai_model::ModelHeader;
+use crate::ai_model::{ModelHeader, WeightsLayout, layer_ptr_int8, layer_dims};
+use crate::ai_link::AI_MODEL_LEN;
 
 static AI_RUNNING: AtomicBool = AtomicBool::new(true);
 
@@ -60,13 +61,74 @@ fn gather_telemetry() -> Telemetry {
     Telemetry::default()
 }
 
-fn infer_and_propose(_hdr: &ModelHeader, _tel: &Telemetry, _scratch: &mut [i32; 1024]) -> Action {
-    let quantum_us = 1000u32;
+fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 1024], model_addr: *const u8) -> Action {
+    // Build input vector of length hidden
+    let hidden = hdr.hidden as usize;
+    let mut inbuf_i8 = [0i8; 256];
+    let in_slice = &mut inbuf_i8[..hidden.min(inbuf_i8.len())];
+    // Very simple features: runq, irq_errors; rest zero
+    if !in_slice.is_empty() {
+        in_slice[0] = tel.runq.min(127) as i8;
+    }
+    if in_slice.len() > 1 { in_slice[1] = tel.irq_errors.min(127) as i8; }
+
+    // Check model length for weights availability
+    let model_len = unsafe { AI_MODEL_LEN };
+    let need = WeightsLayout::compute(hdr).map(|w| w.total_bytes + ModelHeader::PAYLOAD_OFFSET).unwrap_or(0);
+    let has_weights = need > ModelHeader::PAYLOAD_OFFSET && model_len >= need;
+
+    // Buffer courant (int8) pour les couches, sans allocation
+    let mut xbuf = [0i8; 256];
+    let len = in_slice.len();
+    xbuf[..len].copy_from_slice(in_slice);
+    let mut x_len = len;
+
+    if has_weights && hdr.dtype == 0 {
+        let nl = hdr.n_layers as usize;
+        for l in 0..nl {
+            let (in_dim, out_dim) = match layer_dims(hdr, l) { Some(d) => d, None => break };
+            if in_dim > x_len || out_dim > 256 || in_dim == 0 || out_dim == 0 { break; }
+            // Prepare i32 output in scratch
+            let out_ptr = scratch.as_mut_ptr();
+            let w_ptr = unsafe { layer_ptr_int8(model_addr, hdr, l).unwrap_or(core::ptr::null()) };
+            if w_ptr.is_null() { break; }
+            // Do matmul: out = W (out_dim x in_dim) * x (in_dim)
+            unsafe {
+                for oi in 0..out_dim {
+                    let mut acc: i32 = 0;
+                    let w_row = w_ptr.add(oi * in_dim);
+                    for p in 0..in_dim {
+                        let a = *w_row.add(p) as i32;
+                        let b = xbuf[p] as i32;
+                        acc += a * b;
+                    }
+                    *out_ptr.add(oi) = acc;
+                }
+            }
+            // ReLU + requantize by >> 7
+            for oi in 0..out_dim {
+                let mut v = scratch[oi];
+                if v < 0 { v = 0; }
+                v >>= 7; // crude scale
+                if v > 127 { v = 127; }
+                xbuf[oi] = v as i8;
+            }
+            x_len = out_dim;
+        }
+    }
+
+    // Score = premier neurone ou 0
+    let score = if x_len > 0 { xbuf[0] as i32 } else { 0 };
+    // Map score to quantum (100..50_000 µs)
+    let mut quantum: i32 = 1000 + score * 10; // ±1270 around 1ms
+    if quantum < 100 { quantum = 100; }
+    if quantum > 50_000 { quantum = 50_000; }
+
     Action {
         kind: ActionType::SetQuantum as u8,
         flags: actf::REQUIRES_SNAPSHOT,
         _r: [0; 2],
-        param1: quantum_us as u64,
+        param1: quantum as u64,
         param2: 0,
         param3: 0,
     }
@@ -81,7 +143,7 @@ pub extern "C" fn ai_agent_main(model_addr: *const u8) -> ! {
 
     while AI_RUNNING.load(Ordering::Acquire) {
         let tel = gather_telemetry();
-        let action = infer_and_propose(&hdr, &tel, &mut scratch);
+        let action = infer_and_propose(&hdr, &tel, &mut scratch, model.as_ptr() as *const u8);
 
         if (action.flags & actf::NEEDS_MANUAL_CONFIRM) != 0 {
             unsafe { core::arch::asm!("hlt"); }

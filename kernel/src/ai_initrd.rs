@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::ai_link::AI_MODEL_ADDR;
+use crate::ai_link::{AI_MODEL_ADDR, AI_MODEL_LEN};
 use crate::ai_model::ModelHeader;
 
 // Boot/loader can set these to point to an initrd image in RAM (cpio newc).
@@ -66,8 +66,13 @@ pub unsafe fn try_set_model_from_initrd() {
                 // direct assignment is OK too
                 extern "C" { static mut AI_MODEL_ADDR: *const u8; }
                 AI_MODEL_ADDR = p;
+                // Read filesize from cpio header (8 hex at offset 54)
+                // We are in the scope where `ptr` points to file start; to get size we need to re-parse header.
+                // The caller already knows INITRD_LEN; we conservatively set length to INITRD_LEN - (ptr-INITRD_BASE).
+                let base = INITRD_BASE as usize;
+                let off = (ptr as usize).saturating_sub(base);
+                AI_MODEL_LEN = INITRD_LEN.saturating_sub(off);
             }}
         }
     }
 }
-

@@ -1,13 +1,10 @@
 #![allow(dead_code)]
 
-use crate::ai_link::{AI_MODEL_ADDR, AI_MODEL_LEN};
+use crate::ai_link::{AI_MODEL_ADDR, AI_MODEL_LEN, INITRD_BASE, INITRD_LEN};
 use crate::ai_model::ModelHeader;
 
 // Boot/loader can set these to point to an initrd image in RAM (cpio newc).
-#[no_mangle]
-pub static mut INITRD_BASE: *const u8 = core::ptr::null();
-#[no_mangle]
-pub static mut INITRD_LEN: usize = 0;
+// INITRD_BASE/INITRD_LEN are defined in ai_link.rs
 
 // Minimal cpio newc parser (no alloc). Returns pointer to file data if found.
 pub unsafe fn cpio_find(base: *const u8, len: usize, name: &str) -> Option<*const u8> {

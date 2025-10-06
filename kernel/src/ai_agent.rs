@@ -233,7 +233,7 @@ fn ensure_init() -> bool {
         if AGENT_STATE.is_some() {
             return true;
         }
-        let Some(model) = load_model(AI_MODEL_ADDR) else { return false; };
+        let model = match load_model(AI_MODEL_ADDR) { Some(m) => m, None => return false };
         let hdr = core::ptr::read_unaligned(model.as_ptr());
         AGENT_STATE = Some(AgentState {
             hdr,

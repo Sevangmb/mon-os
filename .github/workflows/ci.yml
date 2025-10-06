@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential nasm qemu-system-x86 binutils make coreutils
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+      - name: Build disk image
+        run: |
+          bash scripts/build.sh
+      - name: Smoke test in QEMU
+        run: |
+          chmod +x scripts/test-smoke.sh
+          timeout 120s bash scripts/test-smoke.sh
+

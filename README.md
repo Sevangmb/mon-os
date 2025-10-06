@@ -2,6 +2,46 @@
 
 Petit noyau x86_64 écrit en Rust, amorcé via un bootsector (MBR) et un stage2 en assembleur, puis un kernel Rust en long mode.
 
+## Démarrage rapide (WSL)
+
+1) Installer les dépendances dans WSL (Ubuntu conseillé):
+
+```
+sudo apt update && sudo apt install -y build-essential nasm qemu-system-x86 binutils make coreutils
+```
+
+2) Installer Rust nightly:
+
+```
+curl https://sh.rustup.rs -sSf | sh -s -- -y
+source "$HOME/.cargo/env"
+rustup toolchain install nightly
+```
+
+3) Cloner et construire:
+
+```
+git clone https://github.com/sevangmb/mon-os.git
+cd mon-os
+make
+```
+
+4) Lancer sous QEMU (console série dans le terminal):
+
+```
+make run
+```
+
+5) (Optionnel) Test smoke headless avec sortie contrôlée:
+
+```
+make smoke
+```
+
+Notes:
+- Tous les chemins sont relatifs au dépôt; le dossier peut être nommé comme vous voulez.
+- Les logs apparaissent sur `-serial stdio` et `-debugcon stdio` (port 0xE9).
+
 ## Prérequis (Linux/WSL recommandés)
 
 - Outils système: `build-essential nasm qemu-system-x86 binutils coreutils make`

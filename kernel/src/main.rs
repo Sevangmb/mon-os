@@ -16,6 +16,11 @@ mod serial;
 mod syscall;
 mod vga;
 mod xhci;
+mod ai_action;
+mod ai_agent;
+mod ai_model;
+mod journal;
+mod apply_action;
 
 use bootinfo::BootInfo;
 use core::panic::PanicInfo;
@@ -72,6 +77,7 @@ pub extern "C" fn kernel_main(boot_info: &BootInfo) -> ! {
 
     #[cfg(not(feature = "qemu_exit"))]
     loop {
+        xhci::poll_events();
         hlt();
     }
 }
@@ -151,6 +157,70 @@ fn log_usb_controllers() {
                                 Ok(()) => {
                                     serial::write_str("[xhci] controller initialized\r\n");
                                     xhci::report_ports();
+                                    let _ = xhci::poll_events();
+                                    if !xhci::ensure_first_port_enabled() {
+                                        serial::write_str("[xhci] no enabled port\r\n");
+                                    }
+                                    if let Some(slot) = xhci::enable_slot() {
+                                        serial::write_fmt(format_args!(
+                                            "[xhci] slot {} enabled\r\n",
+                                            slot
+                                        ));
+                                        if xhci::address_device(slot) {
+                                            serial::write_str("[xhci] device addressed\r\n");
+                                            if let Some(dev_desc_phys) = xhci::get_device_descriptor(slot) {
+                                                serial::write_fmt(format_args!(
+                                                    "[xhci] device descriptor at {:#x}\r\n",
+                                                    dev_desc_phys
+                                                ));
+                                                if let Some((hdr_phys, total_len, cfg_val)) = xhci::get_configuration_descriptor_header(slot) {
+                                                    serial::write_fmt(format_args!(
+                                                        "[xhci] config header at {:#x} total_len={} cfg={}\r\n",
+                                                        hdr_phys, total_len, cfg_val
+                                                    ));
+                                                    if let Some(cfg_phys) = xhci::get_configuration_descriptor(slot, total_len) {
+                                                        serial::write_fmt(format_args!(
+                                                            "[xhci] config descriptor at {:#x}\r\n",
+                                                            cfg_phys
+                                                        ));
+                                                        if xhci::set_configuration(slot, cfg_val) {
+                                                            serial::write_str("[xhci] configuration set\r\n");
+                                                            if let Some((ep_addr, maxp, interval)) = xhci::parse_hid_keyboard_endpoint(cfg_phys, total_len) {
+                                                                serial::write_fmt(format_args!(
+                                                                    "[hid] keyboard ep={:#x} maxp={} interval={}\r\n",
+                                                                    ep_addr, maxp, interval
+                                                                ));
+                                                                if xhci::configure_interrupt_in_endpoint(slot, ep_addr, maxp, interval) {
+                                                                    serial::write_str("[hid] interrupt endpoint configured\r\n");
+                                                                    if xhci::start_hid_polling(slot, ep_addr, maxp) {
+                                                                        serial::write_str("[hid] polling started\r\n");
+                                                                    } else {
+                                                                        serial::write_str("[hid] failed to start polling\r\n");
+                                                                    }
+                                                                } else {
+                                                                    serial::write_str("[hid] configure endpoint failed\r\n");
+                                                                }
+                                                            } else {
+                                                                serial::write_str("[hid] no keyboard endpoint found\r\n");
+                                                            }
+                                                        } else {
+                                                            serial::write_str("[xhci] set configuration failed\r\n");
+                                                        }
+                                                    } else {
+                                                        serial::write_str("[xhci] failed to read full config descriptor\r\n");
+                                                    }
+                                                } else {
+                                                    serial::write_str("[xhci] failed to read config header\r\n");
+                                                }
+                                            } else {
+                                                serial::write_str("[xhci] failed to read device descriptor\r\n");
+                                            }
+                                        } else {
+                                            serial::write_str("[xhci] address device failed\r\n");
+                                        }
+                                    } else {
+                                        serial::write_str("[xhci] enable slot failed\r\n");
+                                    }
                                     xhci::poll_events();
                                 }
                                 Err(err) => serial::write_fmt(format_args!(

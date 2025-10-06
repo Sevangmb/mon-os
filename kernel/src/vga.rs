@@ -25,6 +25,16 @@ pub fn write_line(message: &str) {
     console.new_line();
 }
 
+pub fn put_char(c: char) {
+    let mut console = CONSOLE.lock();
+    let _ = console.write_char(c);
+}
+
+pub fn backspace() {
+    let mut console = CONSOLE.lock();
+    console.backspace();
+}
+
 pub fn set_style(style: u8) {
     CONSOLE.lock().style = style;
 }
@@ -103,6 +113,18 @@ impl Console {
 
         for col in 0..BUFFER_WIDTH {
             self.write_entry_at(b' ', self.style, BUFFER_HEIGHT - 1, col);
+        }
+    }
+
+    fn backspace(&mut self) {
+        if self.column_position > 0 {
+            self.column_position -= 1;
+            self.write_entry_at(b' ', self.style, self.row_position, self.column_position);
+        } else if self.row_position > 0 {
+            // Move to end of previous line
+            self.row_position -= 1;
+            self.column_position = BUFFER_WIDTH - 1;
+            self.write_entry_at(b' ', self.style, self.row_position, self.column_position);
         }
     }
 

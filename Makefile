@@ -7,7 +7,7 @@ STAGE2_BIN := $(BUILD_DIR)/stage2.bin
 KERNEL_ELF := kernel/target/x86_64-kernel/release/kernel
 DISK_IMG   := disk.img
 QEMU       ?= qemu-system-x86_64
-QEMU_FLAGS ?= -serial stdio -debugcon stdio -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot -no-shutdown
+QEMU_FLAGS ?= -serial stdio -debugcon stdio -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot -no-shutdown -device qemu-xhci -device usb-kbd
 FEATURES   ?=
 
 all: $(DISK_IMG)

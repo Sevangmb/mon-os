@@ -1,16 +1,35 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-The boot flow is split across `boot/boot.asm` (MBR boot sector) and `stage2/stage2.asm` (transition to long mode and load the kernel). The Rust kernel lives in `kernel/` with `src/main.rs` orchestrating modules such as `gdt.rs`, `idt.rs`, and `serial.rs`. Linker and target metadata reside in `linker.ld` and `kernel/x86_64-kernel.json`. Build outputs land in `build/` and the final `disk.img`; remove them before committing. Place new low-level assets next to their stage (`boot/` for real-mode code, `kernel/src/` for Rust subsystems) and keep emulator artefacts like `qemu-ide.log` out of Git.
+- `boot/boot.asm`: MBR boot sector (NASM).
+- `stage2/stage2.asm`: passage en long mode et chargement du noyau.
+- `kernel/`: noyau Rust `#![no_std]` (modules: `gdt.rs`, `idt.rs`, `pmm.rs`, `pci.rs`, `xhci.rs`, `vga.rs`, etc.). Point d’entrée: `src/main.rs`.
+- `linker.ld`, `kernel/x86_64-kernel.json`: script d’édition de liens et cible Rust.
+- `scripts/`: helpers (`build.sh`, `run-qemu.sh`, `test-smoke.sh`).
+- Artefacts: `build/` et `disk.img` (ne pas committer).
 
 ## Build, Test, and Development Commands
-Run `make` to assemble both stages, compile the kernel with nightly Rust, and emit `disk.img` under `build/`. Use `make clean` to drop artefacts. Development inside `kernel/` supports direct cargo invocations, e.g. `cargo +nightly build --release --target x86_64-kernel.json` from that directory. Launch the image with `qemu-system-x86_64 -drive file=disk.img,format=raw -serial stdio` to observe the serial log.
+- `make`: assemble les étapes, compile le kernel (nightly) et produit `disk.img`.
+- `make run`: lance QEMU avec série/debugcon et périphériques USB (`qemu-xhci`, `usb-kbd`).
+- `make smoke`: test headless, quitte QEMU via `isa-debug-exit` si OK.
+- `make clean`: nettoie les artefacts.
+- Développement kernel: `cd kernel && cargo +nightly build --release -Z build-std=core,compiler_builtins -Z build-std-features=compiler-builtins-mem --target x86_64-kernel.json`.
 
 ## Coding Style & Naming Conventions
-Assembly files follow NASM syntax with uppercase mnemonics and lowercase labels; document new routines with succinct comments. Rust modules are `#![no_std]`; run `cargo fmt` before committing and favor `snake_case` module names (`kernel/src/interrupts.rs`). Keep public interfaces small and gate experimental code behind `cfg` flags so release builds stay minimal.
+- NASM: mnémoniques MAJUSCULES, labels minuscules; commentaires brefs sur les routines.
+- Rust: `snake_case` pour fichiers/modules; API publiques minimales; garder les nouveautés derrière des `cfg` si expérimental.
+- Formatage: exécuter `cargo fmt` dans `kernel/` avant commit.
 
 ## Testing Guidelines
-There is no automated harness yet, so lean on QEMU boots as smoke tests. When adding pure logic, place it in `kernel/src/<module>.rs` and add `#[cfg(test)]` unit tests guarded by `#![cfg_attr(test, no_main)]`, which you can run with `cargo +nightly test --lib`. Capture manual verification steps in the PR (e.g. serial output transcript) to keep regressions traceable.
+- Pas de harnais complet: utiliser `make run` et `make smoke` comme tests fumée. Conserver les logs série/debugcon.
+- Pour la logique pure, ajouter des tests unitaires sous `kernel/src/<module>.rs` avec `#[cfg(test)]` et documenter dans la PR comment reproduire.
 
 ## Commit & Pull Request Guidelines
-Write commits in imperative mood (`boot: mask interrupts before load`) and limit subjects to 72 characters. Each PR should link to its issue, describe observable behaviour changes, note any tooling requirements (nightly updates, new QEMU flags), and attach the latest emulator output. Flag boot protocol or build-script changes with `[BREAKING]` so reviewers can coordinate downstream images.
+- Messages impératifs et concis (≤72 caractères): `boot: mask interrupts before load`.
+- PR: lier l’issue, décrire les changements observables, préciser les exigences (nightly, flags QEMU) et joindre une sortie QEMU récente.
+- Marquer `[BREAKING]` pour toute modification du protocole d’amorçage ou du pipeline de build.
+
+## Agent-Specific Instructions
+- Placez le code au bon niveau: assembleur sous `boot/`/`stage2/`, Rust sous `kernel/src/`.
+- N’émettez pas `disk.img`/`build/` dans Git; respectez ce guide dans tout le sous-arbre.
+- Avant de pousser: `make`, `make run` (ou `make smoke`), et formatez le code.

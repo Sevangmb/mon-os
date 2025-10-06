@@ -1332,7 +1332,7 @@ fn handle_event(state: &mut ControllerState, trb_type: u8, trb: &Trb) {
             {
                 let len = (trb_len as usize).min(state.hid_buf_len);
                 // Decode current buffer
-                super::decode_hid_report(state.hid_buf_phys, len);
+                decode_hid_report(state.hid_buf_phys, len);
                 // Re-post new normal TRB on interrupt ring
                 let cycle = if state.intr_cycle { 1 } else { 0 };
                 let trb = Trb {

@@ -72,6 +72,10 @@ AI_N       ?= 1
 AI_H       ?= 8
 AI_V       ?= 0
 
+# Logs for AI run
+RUN_SERIAL_LOG   ?= ai_journal.log
+RUN_DEBUGCON_LOG ?= debugcon.log
+
 initrd: $(INITRD_IMG)
 
 $(INITRD_IMG): $(AI_MOD)
@@ -86,3 +90,15 @@ ai: $(AI_MOD)
 
 $(AI_MOD): scripts/gen-ai-mod.py
 	python3 scripts/gen-ai-mod.py --layers $(AI_N) --hidden $(AI_H) --vocab $(AI_V) --dtype int8 --out $(AI_MOD) --seed 42
+
+.PHONY: run-ai
+# One-shot: generate model, build initrd + disk image with agent enabled, then run with logs to files
+run-ai:
+	$(MAKE) ai AI_N=$(AI_N) AI_H=$(AI_H) AI_V=$(AI_V)
+	$(MAKE) initrd
+	$(MAKE) FEATURES=ai_agent $(DISK_IMG)
+	$(QEMU) -drive file=$(DISK_IMG),format=raw \
+	  -m 2048 -smp 2 -enable-kvm -cpu host -net none \
+	  -serial file:$(RUN_SERIAL_LOG) -debugcon file:$(RUN_DEBUGCON_LOG) \
+	  -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot -no-shutdown \
+	  -device qemu-xhci -device usb-kbd

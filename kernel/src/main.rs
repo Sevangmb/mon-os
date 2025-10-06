@@ -55,7 +55,6 @@ pub extern "C" fn kernel_main(boot_info: &BootInfo) -> ! {
     // Early IA agent scheduling (before IDT/PIC): best-effort steps
     #[cfg(feature = "ai_agent")]
     {
-        use crate::apply_action::set_system_ready; // will be called later
         extern "C" {
             static mut AI_MODEL_ADDR: *const u8;
             static mut INITRD_BASE: *const u8;

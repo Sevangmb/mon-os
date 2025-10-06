@@ -5,10 +5,12 @@ use spin::Mutex;
 use crate::ai_action::{Action, ActionOutcome, ActionType};
 use crate::journal;
 use crate::idt;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 static APPLY_LOCK: Mutex<()> = Mutex::new(());
 static mut QUANTUM_US: u32 = 1000;
 static mut SEQ: u64 = 0;
+static SYSTEM_READY: AtomicBool = AtomicBool::new(false);
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ApplyError {
@@ -74,6 +76,11 @@ fn trim_cache(bytes: u64) -> bool {
 }
 
 pub fn apply_action_atomic(seq: u64, a: &Action) -> ApplyResult<()> {
+    // Gate actions until the system is fully initialized
+    if !SYSTEM_READY.load(Ordering::Acquire) {
+        journal::journal_reject(seq, a);
+        return Err(ApplyError::NotAllowed);
+    }
     if !is_allowed(a.kind) || !validate_params(a) {
         journal::journal_reject(seq, a);
         return Err(ApplyError::NotAllowed);
@@ -133,4 +140,8 @@ pub extern "C" fn ai_propose_action(
         (*outcome).result = res;
     }
     0
+}
+
+pub fn set_system_ready() {
+    SYSTEM_READY.store(true, Ordering::Release);
 }

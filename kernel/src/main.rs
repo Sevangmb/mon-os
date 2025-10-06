@@ -52,11 +52,42 @@ pub extern "C" fn kernel_main(boot_info: &BootInfo) -> ! {
     serial::init();
     debug_out("kmain: serial\n");
 
+    // Early IA agent scheduling (before IDT/PIC): best-effort steps
+    #[cfg(feature = "ai_agent")]
+    {
+        use crate::apply_action::set_system_ready; // will be called later
+        extern "C" {
+            static mut AI_MODEL_ADDR: *const u8;
+            static mut INITRD_BASE: *const u8;
+            static mut INITRD_LEN: usize;
+        }
+        unsafe {
+            // Propagate initrd from BootInfo and try locating the model early
+            INITRD_BASE = boot_info.initrd_base() as *const u8;
+            INITRD_LEN = boot_info.initrd_len() as usize;
+            if !INITRD_BASE.is_null() && INITRD_LEN > 0 {
+                ai_initrd::try_set_model_from_initrd();
+            }
+            if !AI_MODEL_ADDR.is_null() {
+                serial::write_str("[ai] early scheduling agent task\r\n");
+                let _ = task::register(|| ai_agent::step());
+                // Give it a first step opportunity
+                task::run_once();
+            } else {
+                serial::write_str("[ai] model addr not set; agent inactive\r\n");
+            }
+        }
+    }
+
     idt::init();
     debug_out("kmain: idt\n");
+    #[cfg(feature = "ai_agent")]
+    { task::run_once(); }
 
     syscall::init();
     debug_out("kmain: syscall\n");
+    #[cfg(feature = "ai_agent")]
+    { task::run_once(); }
 
     serial::write_str("Hello Kernel\r\n");
     debug_out("kmain: wrote serial\n");
@@ -69,36 +100,23 @@ pub extern "C" fn kernel_main(boot_info: &BootInfo) -> ! {
 
     pic::init();
     debug_out("kmain: pic\n");
+    #[cfg(feature = "ai_agent")]
+    { task::run_once(); }
 
     pmm::init(boot_info);
     log_memory_map(boot_info);
     log_usb_controllers();
+    #[cfg(feature = "ai_agent")]
+    { task::run_once(); }
 
     interrupts::enable();
     debug_out("kmain: interrupts on\n");
-
     #[cfg(feature = "ai_agent")]
     {
-        extern "C" {
-            static mut AI_MODEL_ADDR: *const u8;
-            static mut INITRD_BASE: *const u8;
-            static mut INITRD_LEN: usize;
-        }
-        unsafe {
-            // Propager les infos initrd depuis BootInfo vers les symboles globaux
-            INITRD_BASE = boot_info.initrd_base() as *const u8;
-            INITRD_LEN = boot_info.initrd_len() as usize;
-            if !INITRD_BASE.is_null() && INITRD_LEN > 0 {
-                ai_initrd::try_set_model_from_initrd();
-            }
-            if !AI_MODEL_ADDR.is_null() {
-                serial::write_str("[ai] scheduling agent task\r\n");
-                let _ = task::register(|| ai_agent::step());
-            } else {
-                serial::write_str("[ai] model addr not set; agent inactive\r\n");
-            }
-        }
+        // Now the system is considered stable for transactional actions
+        crate::apply_action::set_system_ready();
     }
+
 
     #[cfg(feature = "trigger_breakpoint")]
     trigger_breakpoint();

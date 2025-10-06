@@ -95,4 +95,3 @@ pub extern "C" fn ai_agent_main(model_addr: *const u8) -> ! {
 
     idle_hlt()
 }
-

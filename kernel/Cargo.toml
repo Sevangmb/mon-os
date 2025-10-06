@@ -9,6 +9,7 @@ description = "Minimal 64-bit kernel"
 default = []
 trigger_breakpoint = []
 qemu_exit = []
+ai_agent = []
 
 [dependencies]
 spin = { version = "0.9", default-features = false, features = ["mutex", "once", "spin_mutex"] }

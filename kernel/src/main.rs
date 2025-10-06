@@ -17,15 +17,19 @@ mod syscall;
 mod vga;
 mod xhci;
 mod ai_action;
+#[cfg(feature = "ai_agent")]
 mod ai_agent;
 mod ai_model;
 mod journal;
 mod apply_action;
+mod ai_link;
 
 use bootinfo::BootInfo;
 use core::panic::PanicInfo;
 use x86_64::instructions::port::Port;
 use x86_64::instructions::{hlt, interrupts};
+#[cfg(feature = "ai_agent")]
+use core::ptr;
 
 #[cfg(not(test))]
 #[no_mangle]
@@ -68,6 +72,22 @@ pub extern "C" fn kernel_main(boot_info: &BootInfo) -> ! {
 
     interrupts::enable();
     debug_out("kmain: interrupts on\n");
+
+    #[cfg(feature = "ai_agent")]
+    {
+        extern "C" {
+            static mut AI_MODEL_ADDR: *const u8;
+        }
+        unsafe {
+            if !AI_MODEL_ADDR.is_null() {
+                serial::write_str("[ai] starting agent\r\n");
+                // Launch agent in-place (no scheduler yet): run inline for now
+                ai_agent::ai_agent_main(AI_MODEL_ADDR);
+            } else {
+                serial::write_str("[ai] model addr not set; agent inactive\r\n");
+            }
+        }
+    }
 
     #[cfg(feature = "trigger_breakpoint")]
     trigger_breakpoint();

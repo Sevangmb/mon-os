@@ -98,3 +98,64 @@ Un workflow GitHub Actions (`.github/workflows/ci.yml`) construit l’image et e
 
 - Le Makefile cible un environnement de type Unix (Linux/WSL). Sous Windows natif, privilégiez WSL pour éviter les divergences d’outils.
 - Voir `AGENTS.md` pour l’organisation du projet et les conventions.
+# mon-os
+
+Petit noyau x86_64 écrit en Rust, amorcé via un bootsector (MBR) et un stage2 assembleur, puis un kernel Rust en long mode. Périphériques de base (GDT/IDT/PIC), VGA texte, port série/debugcon, xHCI (clavier USB). Un agent IA no_std (optionnel) peut proposer des actions bornées, appliquées transactionnellement par le noyau.
+
+## Prérequis (Linux/WSL recommandés)
+
+- Outils système: `build-essential nasm qemu-system-x86 binutils coreutils make cpio`
+- Rust: `rustup` + toolchain `nightly` + composant `rust-src`
+
+Installation rapide (Ubuntu/WSL):
+```
+sudo apt update && sudo apt install -y build-essential nasm qemu-system-x86 binutils make coreutils cpio
+curl https://sh.rustup.rs -sSf | sh -s -- -y
+source "$HOME/.cargo/env"
+rustup toolchain install nightly
+rustup component add rust-src --toolchain nightly
+```
+
+## Construire et lancer (noyau seul)
+
+```
+make            # produit disk.img
+make run        # lance QEMU (série+debugcon dans le terminal)
+make smoke      # test headless: vérifie "Hello Kernel"
+```
+
+Équivalent QEMU:
+```
+qemu-system-x86_64 \
+  -drive file=disk.img,format=raw \
+  -serial stdio -debugcon stdio \
+  -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+  -no-reboot -no-shutdown
+```
+
+## Agent IA (optionnel)
+
+- Générer un modèle int8 et packer un initrd:
+```
+make ai AI_N=1 AI_H=8 AI_V=0   # écrit ai.mod (poids+biais)
+make initrd                    # produit initrd.img (cpio newc)
+```
+- Lancer avec l’agent IA:
+```
+make FEATURES=ai_agent run
+```
+- Tout-en-un avec logs fichiers:
+```
+make run-ai    # génère ai.mod, initrd, image et lance QEMU
+```
+Presets IA (au choix): `ai_cfg_aggr` (réactif) ou `ai_cfg_conservative` (stable):
+```
+make FEATURES="ai_agent,ai_cfg_conservative" run
+```
+
+## Notes
+
+- Logs: série (COM1) et `debugcon` (port 0xE9). `-serial stdio` et `-debugcon stdio` les affichent; la cible `run-ai` redirige vers des fichiers.
+- Windows natif: utilisez WSL pour éviter les divergences d’outils.
+- CI: GitHub Actions construit l’image et exécute un smoke test QEMU (voir `.github/workflows/ci.yml`).
+- Voir `AGENTS.md` pour l’architecture, les conventions et les commandes utiles.

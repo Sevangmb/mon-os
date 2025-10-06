@@ -10,6 +10,9 @@ default = []
 trigger_breakpoint = []
 qemu_exit = []
 ai_agent = []
+# IA config presets (choose none or one)
+ai_cfg_aggr = []         # plus agressif: quantum plus réactif, requant plus fort
+ai_cfg_conservative = [] # plus conservateur: quantum plus stable, seuils prudents
 
 [dependencies]
 spin = { version = "0.9", default-features = false, features = ["mutex", "once", "spin_mutex"] }

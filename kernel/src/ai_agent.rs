@@ -8,6 +8,40 @@ use crate::ai_model::{ModelHeader, WeightsLayout, layer_ptr_int8, layer_dims, bi
 use crate::ai_link::AI_MODEL_LEN;
 use crate::{idt, pmm};
 
+// --- IA config (ajustable via features) ---
+#[cfg(feature = "ai_cfg_aggr")]
+const REQUANT_SHIFT: i32 = 5;
+#[cfg(all(not(feature = "ai_cfg_aggr"), not(feature = "ai_cfg_conservative")))]
+const REQUANT_SHIFT: i32 = 6;
+#[cfg(feature = "ai_cfg_conservative")]
+const REQUANT_SHIFT: i32 = 6;
+
+#[cfg(feature = "ai_cfg_aggr")]
+const QUANTUM_BASE_US: i32 = 800;
+#[cfg(all(not(feature = "ai_cfg_aggr"), not(feature = "ai_cfg_conservative")))]
+const QUANTUM_BASE_US: i32 = 1000;
+#[cfg(feature = "ai_cfg_conservative")]
+const QUANTUM_BASE_US: i32 = 1500;
+
+#[cfg(feature = "ai_cfg_aggr")]
+const QUANTUM_SCALE: i32 = 30;
+#[cfg(all(not(feature = "ai_cfg_aggr"), not(feature = "ai_cfg_conservative")))]
+const QUANTUM_SCALE: i32 = 20;
+#[cfg(feature = "ai_cfg_conservative")]
+const QUANTUM_SCALE: i32 = 10;
+
+#[cfg(feature = "ai_cfg_conservative")]
+const MEM_LOW_KB: u32 = 16 * 1024;
+#[cfg(not(feature = "ai_cfg_conservative"))]
+const MEM_LOW_KB: u32 = 8 * 1024;
+
+#[cfg(feature = "ai_cfg_conservative")]
+const PF_RATE_THRESH: u32 = 1;
+#[cfg(not(feature = "ai_cfg_conservative"))]
+const PF_RATE_THRESH: u32 = 0;
+
+const TRIM_BYTES: u64 = 1 * 1024 * 1024;
+
 static AI_RUNNING: AtomicBool = AtomicBool::new(true);
 
 extern "C" {
@@ -122,11 +156,11 @@ fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 102
                     *out_ptr.add(oi) = acc;
                 }
             }
-            // ReLU + requantize by >> 6 (un peu plus de dynamique)
+            // ReLU + requantize by >> REQUANT_SHIFT
             for oi in 0..out_dim {
                 let mut v = scratch[oi];
                 if v < 0 { v = 0; }
-                v >>= 6; // crude scale
+                v >>= REQUANT_SHIFT; // crude scale configurable
                 if v > 127 { v = 127; }
                 xbuf[oi] = v as i8;
             }
@@ -144,14 +178,12 @@ fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 102
         if score > 127 { score = 127; }
     }
     // Si mémoire faible (< 8 MiB) ou fautes de page fréquentes → proposer TRIM_CACHE
-    if tel.free_kb < 8 * 1024 || tel.pf_rate > 0 {
-        let bytes = 1 * 1024 * 1024u64; // 1 MiB
-        return Action { kind: ActionType::TrimCache as u8, flags: actf::REQUIRES_SNAPSHOT, _r: [0;2], param1: bytes, param2: 0, param3: 0 };
+    if tel.free_kb < MEM_LOW_KB || tel.pf_rate > PF_RATE_THRESH {
+        return Action { kind: ActionType::TrimCache as u8, flags: actf::REQUIRES_SNAPSHOT, _r: [0;2], param1: TRIM_BYTES, param2: 0, param3: 0 };
     }
 
     // Map score to quantum (100..50_000 µs)
-    const REQUANT_SHIFT: i32 = 6;
-    let mut quantum: i32 = 1000 + score * 20; // ±2540 autour de 1ms
+    let mut quantum: i32 = QUANTUM_BASE_US + score * QUANTUM_SCALE; // configurable
     if quantum < 100 { quantum = 100; }
     if quantum > 50_000 { quantum = 50_000; }
 

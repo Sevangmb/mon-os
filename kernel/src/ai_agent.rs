@@ -143,19 +143,19 @@ fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 102
         if score < -127 { score = -127; }
         if score > 127 { score = 127; }
     }
+    // Si mémoire faible (< 8 MiB) ou fautes de page fréquentes → proposer TRIM_CACHE
+    if tel.free_kb < 8 * 1024 || tel.pf_rate > 0 {
+        let bytes = 1 * 1024 * 1024u64; // 1 MiB
+        return Action { kind: ActionType::TrimCache as u8, flags: actf::REQUIRES_SNAPSHOT, _r: [0;2], param1: bytes, param2: 0, param3: 0 };
+    }
+
     // Map score to quantum (100..50_000 µs)
+    const REQUANT_SHIFT: i32 = 6;
     let mut quantum: i32 = 1000 + score * 20; // ±2540 autour de 1ms
     if quantum < 100 { quantum = 100; }
     if quantum > 50_000 { quantum = 50_000; }
 
-    Action {
-        kind: ActionType::SetQuantum as u8,
-        flags: actf::REQUIRES_SNAPSHOT,
-        _r: [0; 2],
-        param1: quantum as u64,
-        param2: 0,
-        param3: 0,
-    }
+    Action { kind: ActionType::SetQuantum as u8, flags: actf::REQUIRES_SNAPSHOT, _r: [0; 2], param1: quantum as u64, param2: 0, param3: 0 }
 }
 
 #[no_mangle]

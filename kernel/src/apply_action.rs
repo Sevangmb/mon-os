@@ -21,7 +21,11 @@ pub enum ApplyError {
 pub type ApplyResult<T> = core::result::Result<T, ApplyError>;
 
 fn is_allowed(kind: u8) -> bool {
-    matches!(kind, x if x == ActionType::SetQuantum as u8)
+    match kind {
+        x if x == ActionType::SetQuantum as u8 => true,
+        x if x == ActionType::TrimCache as u8 => true,
+        _ => false,
+    }
 }
 
 fn validate_params(a: &Action) -> bool {
@@ -29,6 +33,10 @@ fn validate_params(a: &Action) -> bool {
         x if x == ActionType::SetQuantum as u8 => {
             let us = a.param1 as u32;
             (100..=50_000).contains(&us)
+        }
+        x if x == ActionType::TrimCache as u8 => {
+            let bytes = a.param1 as u64;
+            bytes > 0 && bytes <= 16 * 1024 * 1024
         }
         _ => false,
     }
@@ -59,6 +67,12 @@ fn self_test_ok() -> bool {
     dt >= 1 && dp == 0
 }
 
+fn trim_cache(bytes: u64) -> bool {
+    // Stub: no real cache subsystem yet. Simulate quick success.
+    let _ = bytes;
+    true
+}
+
 pub fn apply_action_atomic(seq: u64, a: &Action) -> ApplyResult<()> {
     if !is_allowed(a.kind) || !validate_params(a) {
         journal::journal_reject(seq, a);
@@ -71,6 +85,7 @@ pub fn apply_action_atomic(seq: u64, a: &Action) -> ApplyResult<()> {
 
     let ok = match a.kind {
         x if x == ActionType::SetQuantum as u8 => write_quantum(a.param1 as u32),
+        x if x == ActionType::TrimCache as u8 => trim_cache(a.param1 as u64),
         _ => false,
     };
 

@@ -68,6 +68,9 @@ clean:
 # --- Initrd packaging (cpio newc) ---
 INITRD_IMG := initrd.img
 AI_MOD     ?= ai.mod
+AI_N       ?= 1
+AI_H       ?= 8
+AI_V       ?= 0
 
 initrd: $(INITRD_IMG)
 
@@ -77,3 +80,9 @@ $(INITRD_IMG): $(AI_MOD)
 	( cd initrd && find . | cpio -o -H newc > ../$(INITRD_IMG) )
 	rm -rf initrd
 	@echo "Built $(INITRD_IMG) with $(AI_MOD)"
+
+.PHONY: ai
+ai: $(AI_MOD)
+
+$(AI_MOD): scripts/gen-ai-mod.py
+	python3 scripts/gen-ai-mod.py --layers $(AI_N) --hidden $(AI_H) --vocab $(AI_V) --dtype int8 --out $(AI_MOD) --seed 42

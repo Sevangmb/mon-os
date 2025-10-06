@@ -204,7 +204,7 @@ fn infer_and_propose(hdr: &ModelHeader, tel: &Telemetry, scratch: &mut [i32; 102
 
 #[no_mangle]
 pub extern "C" fn ai_agent_main(model_addr: *const u8) -> ! {
-    let Some(model) = unsafe { load_model(model_addr) } else { return idle_hlt(); };
+    let model = match unsafe { load_model(model_addr) } { Some(m) => m, None => return idle_hlt(), };
     let hdr = unsafe { core::ptr::read_unaligned(model.as_ptr()) };
 
     let mut scratch: [i32; 1024] = [0; 1024];

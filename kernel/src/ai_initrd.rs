@@ -39,7 +39,13 @@ pub unsafe fn cpio_find(base: *const u8, len: usize, name: &str) -> Option<*cons
         let mut data_off = name_off + namesize;
         data_off = (data_off + 3) & !3; // 4-byte align
         if fname == b"TRAILER!!!" { return None; }
-        if fname == name.as_bytes() || fname == [b'.', b'/', name.as_bytes()].concat().as_slice() {
+        let want = name.as_bytes();
+        let is_exact = fname == want;
+        let is_dot_slash = fname.len() == want.len() + 2
+            && fname.get(0) == Some(&b'.')
+            && fname.get(1) == Some(&b'/')
+            && &fname[2..] == want;
+        if is_exact || is_dot_slash {
             if data_off + filesize <= len {
                 return Some(base.add(data_off));
             } else {
@@ -62,9 +68,6 @@ pub unsafe fn try_set_model_from_initrd() {
             if let Some(h) = ModelHeader::read_unaligned(ptr, ModelHeader::SIZE) { if h.valid() {
                 // Set global symbol
                 let p: *const u8 = ptr;
-                core::ptr::write_volatile(&mut (AI_MODEL_ADDR as *const u8 as usize) as *mut usize, p as usize);
-                // direct assignment is OK too
-                extern "C" { static mut AI_MODEL_ADDR: *const u8; }
                 AI_MODEL_ADDR = p;
                 // Read filesize from cpio header (8 hex at offset 54)
                 // We are in the scope where `ptr` points to file start; to get size we need to re-parse header.
